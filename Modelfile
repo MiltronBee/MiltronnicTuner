@@ -1,0 +1,4 @@
+FROM ./models/mistral-7b-merged
+TEMPLATE """[INST] {{ .Prompt }} [/INST]"""
+PARAMETER stop "[INST]"
+PARAMETER stop "[/INST]"

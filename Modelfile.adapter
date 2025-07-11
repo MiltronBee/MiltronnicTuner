@@ -1,0 +1,5 @@
+FROM mistral:7b-instruct
+ADAPTER ./models/mistral-7b-finetuned/checkpoint-9000
+TEMPLATE """[INST] {{ .Prompt }} [/INST]"""
+PARAMETER stop "[INST]"
+PARAMETER stop "[/INST]"
