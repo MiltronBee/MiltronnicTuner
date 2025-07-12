@@ -122,11 +122,11 @@ echo "🏃 Starting training..."
 echo "📝 Check logs in the console and at https://wandb.ai"
 
 $VENV_NAME/bin/python -m accelerate.commands.accelerate_cli launch train.py \
---per_device_train_batch_size 1 \
---gradient_accumulation_steps 8 \
+--per_device_train_batch_size 4 \
+--gradient_accumulation_steps 4 \
 --num_train_epochs 3 \
 --logging_steps 10 \
 --save_steps 500 \
 --max_seq_length 2048 \
---num_workers 16 \
+--num_workers 4 \
 --report_to wandb

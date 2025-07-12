@@ -53,14 +53,14 @@ def main():
     parser.add_argument("--model_name_or_path", type=str, default="./models/mistral-7b-instruct", help="Model name or path")
     parser.add_argument("--train_file", type=str, default="./data/training_data.jsonl", help="Path to training data")
     parser.add_argument("--output_dir", type=str, default="./models/mistral-7b-finetuned", help="Output directory for fine-tuned model")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=1, help="Batch size per device for training")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=2, help="Gradient accumulation steps")
+    parser.add_argument("--per_device_train_batch_size", type=int, default=4, help="Batch size per device for training")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="Gradient accumulation steps")
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Number of training epochs")
     parser.add_argument("--logging_steps", type=int, default=10, help="Logging steps")
     parser.add_argument("--save_steps", type=int, default=100, help="Save steps")
     parser.add_argument("--max_seq_length", type=int, default=512, help="Maximum sequence length")
     parser.add_argument("--report_to", type=str, default="wandb", help="Report to wandb or none")
-    parser.add_argument("--num_workers", type=int, default=1, help="Dataloader number of workers")
+    parser.add_argument("--num_workers", type=int, default=4, help="Dataloader number of workers")
     args = parser.parse_args()
 
     try:
@@ -101,7 +101,9 @@ def main():
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16, # Use bfloat16 for H100
-            trust_remote_code=True
+            trust_remote_code=True,
+            device_map="auto",
+            use_cache=False
         )
         
         # LoRA configuration
@@ -182,8 +184,8 @@ def main():
         tokenized_dataset = dataset.map(
             lambda examples: processing_function(examples, tokenizer, args.max_seq_length),
             batched=True,
-            num_proc=16,
-            load_from_cache_file=True,
+            num_proc=4,
+            load_from_cache_file=False,
             remove_columns=dataset.column_names
         )
         
@@ -205,7 +207,7 @@ def main():
             per_device_train_batch_size=args.per_device_train_batch_size,
             per_device_eval_batch_size=args.per_device_train_batch_size, # Use same for eval
             gradient_accumulation_steps=args.gradient_accumulation_steps,
-            warmup_steps=100,
+            warmup_steps=50,
             learning_rate=2e-4,
             bf16=True, # Enable bfloat16 for H100
             logging_steps=args.logging_steps,
@@ -222,7 +224,7 @@ def main():
             remove_unused_columns=True,
             label_names=["labels"],
             dataloader_pin_memory=True, # Enable pin_memory
-            group_by_length=False,
+            group_by_length=True,
         )
     
         # Data collator
