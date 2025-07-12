@@ -48,7 +48,16 @@ def load_jsonl_data(file_path):
             })
     return data
 
+import torch.multiprocessing as mp
+
 def main():
+    # Set the start method for multiprocessing
+    try:
+        mp.set_start_method('spawn', force=True)
+        logger.info("✅ Multiprocessing start method set to 'spawn'.")
+    except RuntimeError:
+        logger.warning("Multiprocessing start method already set.")
+    
     parser = argparse.ArgumentParser(description="Mistral 7B Fine-tuning")
     parser.add_argument("--model_name_or_path", type=str, default="./models/mistral-7b-instruct", help="Model name or path")
     parser.add_argument("--train_file", type=str, default="./data/training_data.jsonl", help="Path to training data")
@@ -72,25 +81,19 @@ def main():
             logger.error("No CUDA devices found! Training requires GPU.")
             return
     
-        # Initialize wandb only on rank 0
-        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-        if local_rank == 0 and args.report_to == "wandb":
-            try:
-                wandb.init(
-                    project="mistral-7b-finetune",
-                    name=f"mistral-training-{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                    config={
-                        "model": args.model_name_or_path,
-                        "dataset": args.train_file,
-                        "method": "LoRA",
-                        "gpu_count": device_count,
-                        **vars(args)
-                    }
-                )
-                logger.info("✅ WandB initialized successfully")
-            except Exception as e:
-                logger.warning(f"Failed to initialize wandb: {e}")
-                args.report_to = "none"
+        # Initialize wandb
+        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
+            wandb.init(
+                project="mistral-7b-finetune",
+                name=f"mistral-training-{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                config={
+                    "model": args.model_name_or_path,
+                    "dataset": args.train_file,
+                    "method": "LoRA",
+                    "gpu_count": device_count,
+                    **vars(args)
+                }
+            )
     
         # Configuration
         model_path = args.model_name_or_path
@@ -108,7 +111,6 @@ def main():
             model_path,
             torch_dtype=torch.bfloat16, # Use bfloat16 for H100
             trust_remote_code=True,
-            device_map="auto",
             use_cache=False
         )
         
@@ -127,12 +129,20 @@ def main():
     
         # Load and prepare data
         logger.info("Loading training data...")
-        raw_data = load_jsonl_data(data_path)
         
-        # Create dataset
-        dataset = Dataset.from_list(raw_data)
+        arrow_dataset_path = "./data/arrow_dataset"
 
-        if local_rank == 0 and args.report_to == "wandb":
+        if os.path.exists(arrow_dataset_path):
+            logger.info(f"Loading dataset from arrow cache: {arrow_dataset_path}")
+            dataset = Dataset.load_from_disk(arrow_dataset_path)
+        else:
+            logger.info("Loading data from JSONL file and creating arrow dataset...")
+            raw_data = load_jsonl_data(data_path)
+            dataset = Dataset.from_list(raw_data)
+            logger.info(f"Saving arrow dataset to {arrow_dataset_path} for faster re-runs...")
+            dataset.save_to_disk(arrow_dataset_path)
+
+        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
             logger.info("📊 Logging a sample of the dataset to wandb...")
             try:
                 sample_dataset = dataset.shuffle().select(range(100))
@@ -187,11 +197,12 @@ def main():
             model_inputs["labels"] = labels
             return model_inputs
 
+        logger.info("Tokenizing dataset...")
         tokenized_dataset = dataset.map(
             lambda examples: processing_function(examples, tokenizer, args.max_seq_length),
             batched=True,
-            num_proc=4,
-            load_from_cache_file=False,
+            num_proc=args.num_workers,
+            load_from_cache_file=True,
             remove_columns=dataset.column_names
         )
         
@@ -230,7 +241,7 @@ def main():
             remove_unused_columns=True,
             label_names=["labels"],
             dataloader_pin_memory=True, # Enable pin_memory
-            group_by_length=True,
+            group_by_length=False,
         )
     
         # Data collator
@@ -282,14 +293,14 @@ def main():
         tokenizer.save_pretrained(output_dir)
 
         logger.info("✅ Training completed successfully!")
-        if local_rank == 0 and args.report_to == "wandb":
+        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
             wandb.finish()
         
     except Exception as e:
         logger.error(f"❌ Training failed with error: {str(e)}")
         import traceback
         traceback.print_exc()
-        if local_rank == 0 and args.report_to == "wandb":
+        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
             wandb.finish()
         raise
 

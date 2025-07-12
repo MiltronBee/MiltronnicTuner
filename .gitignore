@@ -1,2 +1,16 @@
 data/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
 .env
+.vscode/
+.idea/
+/logs
+/mistral_finetune
+/models
+/wandb
+/data/arrow_dataset

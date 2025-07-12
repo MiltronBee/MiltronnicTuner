@@ -6,7 +6,7 @@ echo "🚀 Setting up Mistral-7B Fine-tuning Environment"
 echo "==============================================="
 
 VENV_NAME="mistral_finetune"
-DATA_SOURCE="toor@20.163.60.124:/home/toor/copy/formatted_data.jsonl"
+DATA_SOURCE="toor@20.163.60.124:/home/toor/pyme/formatted_data.jsonl"
 DATA_FILE="training_data.jsonl"
 MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.2"
 LOG_FILE="logs/training.log"
@@ -45,7 +45,6 @@ $VENV_NAME/bin/python -m pip install wandb tqdm huggingface_hub
 
 echo "📁 Creating directories..."
 mkdir -p data models logs
-echo "✅ Created directories: data, models, logs"
 
 echo "🔐 Setting up Hugging Face authentication..."
 # Load existing .env if it exists
@@ -76,13 +75,8 @@ if [ -f "./data/$DATA_FILE" ]; then
     echo "File size: $(du -h ./data/$DATA_FILE | cut -f1)"
 else
     echo "📥 Downloading training data from $DATA_SOURCE..."
-    if scp $DATA_SOURCE ./data/$DATA_FILE; then
-        echo "✅ Training data downloaded: ./data/$DATA_FILE"
-        echo "File size: $(du -h ./data/$DATA_FILE | cut -f1)"
-    else
-        echo "❌ Failed to download training data. Please check the source path."
-        exit 1
-    fi
+    scp $DATA_SOURCE ./data/$DATA_FILE
+    echo "✅ Training data downloaded: ./data/$DATA_FILE"
 fi
 
 echo "🤖 Checking/downloading base model..."
@@ -127,12 +121,14 @@ echo "✅ WandB authentication complete"
 echo "🏃 Starting training..."
 echo "📝 Check logs in the console and at https://wandb.ai"
 
-$VENV_NAME/bin/python -m accelerate.commands.accelerate_cli launch --config_file accelerate_config.yaml train.py \
---per_device_train_batch_size 4 \
---gradient_accumulation_steps 4 \
---num_train_epochs 3 \
---logging_steps 10 \
---save_steps 500 \
---max_seq_length 2048 \
---num_workers 4 \
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+$VENV_NAME/bin/python -m accelerate.commands.accelerate_cli launch train.py 
+--per_device_train_batch_size 1 
+--gradient_accumulation_steps 4 
+--num_train_epochs 3 
+--logging_steps 10 
+--save_steps 500 
+--max_seq_length 1024 
+--num_workers 4 
 --report_to wandb
