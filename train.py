@@ -72,19 +72,25 @@ def main():
             logger.error("No CUDA devices found! Training requires GPU.")
             return
     
-        # Initialize wandb
-        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
-            wandb.init(
-                project="mistral-7b-finetune",
-                name=f"mistral-training-{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                config={
-                    "model": args.model_name_or_path,
-                    "dataset": args.train_file,
-                    "method": "LoRA",
-                    "gpu_count": device_count,
-                    **vars(args)
-                }
-            )
+        # Initialize wandb only on rank 0
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        if local_rank == 0 and args.report_to == "wandb":
+            try:
+                wandb.init(
+                    project="mistral-7b-finetune",
+                    name=f"mistral-training-{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    config={
+                        "model": args.model_name_or_path,
+                        "dataset": args.train_file,
+                        "method": "LoRA",
+                        "gpu_count": device_count,
+                        **vars(args)
+                    }
+                )
+                logger.info("✅ WandB initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize wandb: {e}")
+                args.report_to = "none"
     
         # Configuration
         model_path = args.model_name_or_path
@@ -126,7 +132,7 @@ def main():
         # Create dataset
         dataset = Dataset.from_list(raw_data)
 
-        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
+        if local_rank == 0 and args.report_to == "wandb":
             logger.info("📊 Logging a sample of the dataset to wandb...")
             try:
                 sample_dataset = dataset.shuffle().select(range(100))
@@ -276,14 +282,14 @@ def main():
         tokenizer.save_pretrained(output_dir)
 
         logger.info("✅ Training completed successfully!")
-        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
+        if local_rank == 0 and args.report_to == "wandb":
             wandb.finish()
         
     except Exception as e:
         logger.error(f"❌ Training failed with error: {str(e)}")
         import traceback
         traceback.print_exc()
-        if os.environ.get("LOCAL_RANK", "0") == "0" and args.report_to == "wandb":
+        if local_rank == 0 and args.report_to == "wandb":
             wandb.finish()
         raise
 
